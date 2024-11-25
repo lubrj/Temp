@@ -1,34 +1,164 @@
-import discord
-from discord.ext import commands
+import requests
+import json
+import os
+from colorama import Fore, Style, init
+import msvcrt
 
-# Set up the bot with the prefix you prefer
-intents = discord.Intents.default()
-intents.members = True  # Necessary for member updates
+init()
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+SERVER_URL = "http://37.114.46.139:7006"
 
-# Event to trigger when a member joins or when their roles are updated
-@bot.event
-async def on_member_update(before, after):
-    # Get all roles for the user sorted by position (highest role first)
-    roles = sorted(after.roles, key=lambda role: role.position, reverse=True)
-    
-    # Find the highest role with "Owner" in its name
-    highest_owner_role = next((role for role in roles if "Owner" in role.name), None)
-    
-    if highest_owner_role:
-        # Format the nickname with the highest role's name
-        new_nickname = f"[{highest_owner_role.name}] {after.display_name}"
+def password_input():
+    password = ""
+    print(Fore.CYAN + "Password: " + Style.RESET_ALL, end='', flush=True)
+    while True:
+        char = msvcrt.getch()
+        if char == b'\r':
+            break
+        elif char == b'\x08':
+            if len(password) > 0:
+                password = password[:-1]
+                print('\b \b', end='', flush=True)
+        else:
+            password += char.decode('utf-8')
+            print('*', end='', flush=True)
+    return password
+
+def end():
+    print(Fore.MAGENTA + '''
+╔═══════════════════════════╗
+║     Thanks for using      ║
+║      ATLEX KEYAUTH        ║
+╚═══════════════════════════╝
+''' + Style.RESET_ALL)
+    exit()
+
+def show_menu():
+    print(Fore.MAGENTA + '''
+╔═══════════════════════╗
+║      Select key       ║
+╠═══════════════════════╣
+║  1. Testing (3 days)  ║
+║  2. 1 Week            ║
+║  3. 1 Month           ║
+║  4. 3 Months          ║
+║  5. Lifetime          ║
+╚═══════════════════════╝
+''' + Style.RESET_ALL)
+
+def clear_console():
+    if os.name == 'nt':
+        os.system('cls')
+    else:
+        os.system('clear')
+
+def login():
+    try:
+        if os.path.exists('temp'):
+            with open('temp', 'r') as f:
+                existing_token = f.read().strip()
+                
+            check_response = requests.post(
+                f"{SERVER_URL}/check_login",
+                json={"token": existing_token}
+            )
+            
+            if check_response.status_code == 200:
+                if check_response.json()['valid']:
+                    return existing_token
+
+    except:
+        pass
+
+    print(Fore.MAGENTA + '''
+╔══════════════════════════╗
+║           Login          ║
+╚══════════════════════════╝
+''' + Style.RESET_ALL)
+
+    try:
+        username = input(Fore.CYAN + "Username: " + Style.RESET_ALL)
+        password = password_input()
+
+        credentials = {
+            "username": username,
+            "password": password
+        }
+    except KeyboardInterrupt:
+        end()
+
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/login",
+            json=credentials
+        )
+
+        if response.status_code == 200:
+            token = response.json()['token']
+            with open('temp', 'w') as f:
+                f.write(token)
+            return token
+        else:
+            print(Fore.RED + "\n[ERROR] Login failed. Invalid username or password." + Style.RESET_ALL)
+            return None
+
+    except requests.exceptions.ConnectionError:
+        print(Fore.RED + "\n[ERROR] Server unreachable. Please make sure the server is running." + Style.RESET_ALL)
+        return None
+
+def gen(token):
+    show_menu()
+    try:
+        choice = str(input(Fore.CYAN + "Enter choice (1-5): " + Style.RESET_ALL))
+        username = str(input(Fore.CYAN + "Enter Discord ID of key owner: " + Style.RESET_ALL))
+    except KeyboardInterrupt:
+        end()
+
+    data = {
+        "token": token,
+        "type": choice,
+        "owner": username
+    }
+
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/getkey",
+            json=data
+        )
         
-        # Only change nickname if it’s different
-        if after.nick != new_nickname:
-            try:
-                await after.edit(nick=new_nickname)
-                print(f"Updated nickname for {after.name} to {new_nickname}")
-            except discord.Forbidden:
-                print(f"Bot doesn't have permission to change nickname for {after.name}")
-            except discord.HTTPException as e:
-                print(f"Failed to change nickname: {e}")
+        if response.status_code == 200:
+            result = response.json()
+            if result['success']:
+                clear_console()
+                print(Fore.MAGENTA + '''
+╔═════════════════════════════════════════╗
+║               Key Generated             ║
+╠═════════════════════════════════════════╣
+║ Key: {} ║
+║ Expiration: {}         ║
+║ Owner: {}              ║
+╚═════════════════════════════════════════╝
+'''.format(result["key"], result["expiration"], result["owner"]) + Style.RESET_ALL)
+            else:
+                print(Fore.RED + "\n[ERROR] Request failed." + Style.RESET_ALL)
+        else:
+            print(Fore.RED + "\n[ERROR] Invalid token or server error." + Style.RESET_ALL)
+            
+    except requests.exceptions.ConnectionError:
+        print(Fore.RED + "\n[ERROR] Server unreachable." + Style.RESET_ALL)
 
-# Start the bot (replace 'YOUR_TOKEN_HERE' with your bot token)
-bot.run('MTE1MTE4NjY3MjUwNDAxMjg0MA.Gbc6ss.w1Rw6eRPvVj0FP92UP1uxA6jhpqlqXvoc-DsXY')
+if __name__ == "__main__":
+    try:
+        clear_console()
+        token = login()
+        if token:
+            while True:
+                clear_console()
+                gen(token)
+                another = input(Fore.CYAN + "\nGenerate another key? (y/n): " + Style.RESET_ALL)
+                if another.lower() != 'y':
+                    break
+        end()
+    except KeyboardInterrupt:
+        clear_console()
+        end()
